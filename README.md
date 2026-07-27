@@ -55,8 +55,8 @@ DocMind 是一个 **智能文档问答系统**，你可以上传公司文档（P
 ### 第一步：克隆项目
 
 ```bash
-git clone https://github.com/PeichengLiao/LLM-.git
-cd LLM-
+git clone https://github.com/PeichengLiao/LLM-Project-Practice.git
+cd LLM-Project-Practice
 ```
 
 ### 第二步：创建虚拟环境
