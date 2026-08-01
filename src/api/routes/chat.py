@@ -70,7 +70,7 @@ def _get_rag_pipeline():
         from src.retrieval import VectorStore, BM25Retriever, HybridRetriever
         from src.generation import LLMClient, build_rag_prompt, format_context
 
-        embedder = Embedder(device=config.EMBED_DEVICE)
+        embedder = Embedder(model_name=config.EMBED_MODEL_NAME, device=config.EMBED_DEVICE)
         vector_store = VectorStore(
             persist_dir=config.CHROMA_PERSIST_DIR,
             collection_name=config.CHROMA_COLLECTION_NAME,
@@ -129,7 +129,7 @@ async def chat(request: ChatRequest):
             )
 
         # Step 3: 构建 Prompt
-        from src.generation.prompts import format_context
+        from src.generation.prompts import format_context, build_rag_prompt
         context = format_context(search_results)
         messages = build_rag_prompt(
             question=request.question,
@@ -148,6 +148,7 @@ async def chat(request: ChatRequest):
             {
                 "text": r["text"][:200],
                 "score": r["score"],
+                "relevance": r.get("relevance", ""),  # 相关性等级
                 "source": r.get("metadata", {}).get("source", "未知"),
             }
             for r in search_results
@@ -158,6 +159,70 @@ async def chat(request: ChatRequest):
     except Exception as e:
         logger.error(f"对话出错: {e}")
         raise HTTPException(status_code=500, detail=f"服务内部错误: {str(e)}")
+
+
+# ============================================================
+# 智能判断：一个问题该用 RAG 还是 Agent？
+# ============================================================
+# 用户不需要自己选，系统根据问题类型自动决定
+
+def _should_use_agent(question: str) -> bool:
+    """
+    判断一个问题是否需要 Agent 的多步推理能力
+
+    触发 Agent 的信号（任一满足即可）：
+    1. 多步推理词：先A再B、如果A就B、然后
+    2. 比较词：比较、对比、哪个更好、区别、区别是什么
+    3. 条件判断：够不够、要不要、能不、会不会
+    4. 计算词：计算、算一下、算算、多少钱
+    5. 多个问号：一句话里问了两个以上问题
+    """
+    # 多步推理
+    multi_step = ["先", "再", "然后", "接着", "之后", "如果", "就"]
+    # 比较
+    compare = ["比较", "对比", "哪个更", "哪个好", "区别", "不同", "一样", "差不多"]
+    # 条件判断
+    condition = ["够不够", "要不要", "能不", "会不会", "需不需要", "是不是", "有没有可能"]
+    # 计算
+    calculate = ["计算", "算一下", "算算", "多少天", "多少钱", "贵多少", "差多少"]
+
+    all_triggers = multi_step + compare + condition + calculate
+    score = sum(1 for t in all_triggers if t in question)
+
+    # 多个问号也算复杂问题
+    question_count = question.count("？") + question.count("?")
+    if question_count >= 2:
+        score += 1
+
+    return score >= 1  # 命中任意一个就启用 Agent
+
+
+@router.post("/chat/auto")
+async def chat_auto(request: ChatRequest):
+    """
+    智能对话接口 —— 自动判断用 RAG 还是 Agent
+
+    用户无需选择模式，系统会根据问题复杂度自动路由：
+    - 简单查定义、查数据 → RAG（又快又省钱）
+    - 多步推理、比较、计算 → Agent（多轮搜索+工具调用）
+    """
+    use_agent = _should_use_agent(request.question)
+    logger.info(f"智能路由: {'Agent' if use_agent else 'RAG'} ← '{request.question[:50]}'")
+
+    if use_agent:
+        # 调用 Agent
+        from src.api.routes.agent import _get_agent
+        pipe = _get_agent()
+        agent = pipe["agent"]
+        agent.max_rounds = 5
+        result = agent.run(request.question)
+        return ChatResponse(
+            answer=result.answer,
+            sources=[],  # Agent 模式下来源嵌入在回答中
+        )
+    else:
+        # 走普通 RAG
+        return await chat(request)
 
 
 @router.post("/chat/stream")
@@ -194,7 +259,7 @@ async def chat_stream(request: ChatRequest):
                 return
 
             # Step 3: 构建 Prompt
-            from src.generation.prompts import format_context
+            from src.generation.prompts import format_context, build_rag_prompt
             context = format_context(search_results)
             messages = build_rag_prompt(
                 question=request.question,

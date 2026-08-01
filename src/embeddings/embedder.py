@@ -45,14 +45,16 @@ class Embedder:
         vectors = embedder.embed_batch(["问题1", "问题2", "问题3"])  # 批量（更快）
     """
 
-    def __init__(self, model_name: str = "BAAI/bge-m3", device: str = None):
+    def __init__(self, model_name: str = "BAAI/bge-m3", device: str = None, offline: bool = True):
         """
         初始化嵌入模型
 
         参数:
-            model_name: HuggingFace 上的模型名称
+            model_name: 模型路径（可以是 HuggingFace ID 或本地路径）
             device: 运行设备。可选 "cpu", "mps"(Apple GPU), "cuda"(NVIDIA GPU)
                    设为 None 则自动检测：有 MPS 用 MPS，有 CUDA 用 CUDA，都没有用 CPU
+            offline: 离线模式（默认 True）。不在 HuggingFace 验证模型，直接用本地文件。
+                    国内网络环境必须开启，否则会卡在连接 HuggingFace。
         """
         # 自动检测设备
         if device is None:
@@ -66,6 +68,12 @@ class Embedder:
 
         self.model_name = model_name
         self.device = device
+
+        # 国内网络无法访问 HuggingFace，必须设置离线模式
+        if offline:
+            import os
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+            os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
         print(f"📥 正在加载嵌入模型: {model_name} (设备: {device})...")
         # trust_remote_code=True: BGE-M3 有一些自定义代码，需要允许执行

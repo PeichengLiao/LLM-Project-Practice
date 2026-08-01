@@ -134,10 +134,13 @@ class HybridRetriever:
             # RRF 公式: 1/(k + rank)，rank 从 1 开始
             rrf_scores[text_hash] = rrf_scores.get(text_hash, 0) + 1.0 / (self.rrf_k + rank + 1)
             doc_contents[text_hash] = text
+            # cosine_distance → cosine_similarity（ChromaDB 用余弦距离，1-距离=相似度）
+            vector_similarity = round(1.0 - distance, 4)
             doc_metadatas[text_hash] = {
                 **metadata,
                 "vector_rank": rank + 1,
                 "vector_distance": distance,
+                "vector_similarity": vector_similarity,  # ← 这才是真正的语义相似度
             }
 
         # 处理 BM25 结果
@@ -155,12 +158,33 @@ class HybridRetriever:
         sorted_items = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
 
         # Step 3: 返回 top_k 结果
+        # 用向量相似度作为展示分数（比 RRF 分数更有实际意义）
+        # 如果没有向量分数（纯 BM25 结果），则用 RRF 分数
         results = []
-        for text_hash, score in sorted_items[:top_k]:
+        for text_hash, rrf_score in sorted_items[:top_k]:
+            meta = doc_metadatas[text_hash]
+            # 优先用向量相似度，没有的话用 RRF 分数
+            raw_similarity = meta.get("vector_similarity", None)
+            display_score = raw_similarity if raw_similarity is not None else round(rrf_score, 4)
+
+            # 给相关性分等级（因为 BGE-M3 对中文有 20-40% 的"地板效应"）
+            # 完全不相关的两段中文也可能显示 30%，所以要校准
+            if raw_similarity is not None:
+                if raw_similarity >= 0.55:
+                    level = "🔥 高"
+                elif raw_similarity >= 0.40:
+                    level = "⚠️ 中"
+                else:
+                    level = "❄️ 低"
+            else:
+                level = "📏 仅关键词"
+
             results.append({
                 "text": doc_contents[text_hash],
-                "score": round(score, 4),
-                "metadata": doc_metadatas[text_hash],
+                "score": display_score,
+                "rrf_score": round(rrf_score, 4),
+                "relevance": level,  # ← 新增：一眼看懂的相关性等级
+                "metadata": meta,
             })
 
         return results

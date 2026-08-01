@@ -52,7 +52,7 @@ def main():
     doc_parser = DocumentParser()
     chunker = get_chunker(args.strategy)
     preprocessor = TextPreprocessor()
-    embedder = Embedder(device=config.EMBED_DEVICE)
+    embedder = Embedder(model_name=config.EMBED_MODEL_NAME, device=config.EMBED_DEVICE)
     vector_store = VectorStore(
         persist_dir=config.CHROMA_PERSIST_DIR,
         collection_name=config.CHROMA_COLLECTION_NAME,

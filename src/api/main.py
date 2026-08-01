@@ -93,13 +93,15 @@ async def shutdown():
 
 @app.get("/")
 async def root():
-    """根路径 - 健康检查"""
-    return {
-        "name": "DocMind API",
-        "version": "0.1.0",
-        "status": "running",
-        "docs": "/docs",
-    }
+    """返回前端聊天界面"""
+    frontend_path = Path(__file__).parent.parent.parent / "frontend" / "index.html"
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=frontend_path.read_text(encoding="utf-8"))
+
+@app.get("/health")
+async def health():
+    """健康检查接口"""
+    return {"status": "healthy"}
 
 
 @app.get("/health")
